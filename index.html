@@ -378,6 +378,83 @@ function NewRoundModal({ players, onSave, onClose }) {
   );
 }
 
+// ─── RoundLineChart ───────────────────────────────────────────
+function RoundLineChart({ round, players, pts }) {
+  const hands = round.hands;
+  if (!hands.length) return null;
+
+  const TEAM_COLORS = ['#c4b5fd','#6ee7b7','#fcd34d','#f87171','#60a5fa','#fb923c'];
+
+  const series = round.type === 'single'
+    ? round.participants.map(p => {
+        const player = players.find(pl => pl.id === p.id);
+        let cum = 0;
+        const points = [0];
+        for (const h of hands) { cum += calcScore(pts, [h], p.id); points.push(cum); }
+        return { id: p.id, name: player?.name || '?', color: player?.color || '#94a3b8', points };
+      })
+    : round.participants.map((t, ti) => {
+        let cum = 0;
+        const points = [0];
+        for (const h of hands) {
+          cum += (t.playerIds || []).reduce((s, pid) => s + calcScore(pts, [h], pid), 0);
+          points.push(cum);
+        }
+        return { id: t.id, name: t.name, color: TEAM_COLORS[ti % TEAM_COLORS.length], points };
+      });
+
+  const W = 320, H = 160;
+  const pad = { top: 18, right: 44, bottom: 24, left: 36 };
+  const cW = W - pad.left - pad.right;
+  const cH = H - pad.top - pad.bottom;
+  const n = hands.length;
+
+  const allY = series.flatMap(s => s.points);
+  const minY = Math.min(0, ...allY);
+  const maxY = Math.max(0, ...allY);
+  const yRange = maxY - minY || 1;
+
+  const xS = i => pad.left + (i / n) * cW;
+  const yS = y => pad.top + cH - ((y - minY) / yRange) * cH;
+  const fmt = v => v > 0 ? `+${v}` : `${v}`;
+
+  const yTicks = [...new Set([minY, 0, maxY])];
+
+  return (
+    <div style={{background:'#0a0c14',borderRadius:10,padding:'10px 4px 4px',marginBottom:10,border:'1px solid #1e2235'}}>
+      <div style={{fontSize:11,color:'#64748b',fontWeight:600,marginBottom:2,paddingLeft:8}}>📈 Points Timeline</div>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{width:'100%',height:'auto',overflow:'visible'}}>
+        {/* horizontal grid + y labels */}
+        {yTicks.map(v => (
+          <g key={v}>
+            <line x1={pad.left} y1={yS(v)} x2={W - pad.right} y2={yS(v)}
+              stroke={v === 0 ? '#2d3561' : '#14172a'} strokeWidth={v === 0 ? 1.5 : 1} />
+            <text x={pad.left - 4} y={yS(v) + 3.5} textAnchor="end" fill="#475569" fontSize={9}>{fmt(v)}</text>
+          </g>
+        ))}
+        {/* x labels */}
+        {Array.from({ length: n }, (_, i) => (
+          <text key={i} x={xS(i + 1)} y={H - 5} textAnchor="middle" fill="#475569" fontSize={9}>{i + 1}</text>
+        ))}
+        {/* series */}
+        {series.map(s => {
+          const d = s.points.map((y, i) => `${i === 0 ? 'M' : 'L'}${xS(i).toFixed(1)},${yS(y).toFixed(1)}`).join(' ');
+          const last = s.points[s.points.length - 1];
+          return (
+            <g key={s.id}>
+              <path d={d} fill="none" stroke={s.color} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+              {s.points.map((y, i) => i > 0 && (
+                <circle key={i} cx={xS(i)} cy={yS(y)} r={3} fill={s.color} stroke="#0a0c14" strokeWidth={1.5} />
+              ))}
+              <text x={xS(n) + 5} y={yS(last) + 4} fill={s.color} fontSize={9} fontWeight="600">{s.name}</text>
+            </g>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
 // ─── AddHandModal ─────────────────────────────────────────────
 function AddHandModal({ round, players, pts, onSave, onClose }) {
   const [assignments, setAssignments] = useState({});
@@ -769,6 +846,7 @@ function HistoryTab({ rounds, players, settings }) {
                   );
                 })}
 
+                <RoundLineChart round={round} players={players} pts={settings.points} />
                 <div className="section-title" style={{marginTop:12}}>Hands</div>
                 {round.hands.length === 0 && <div style={{color:'#475569',fontSize:12,padding:8,textAlign:'center'}}>No hands yet</div>}
                 {round.hands.map((h, hi) => (
@@ -920,6 +998,8 @@ function PlayingGroundTab({ players, rounds, setRounds, activeRoundId, setActive
           );
         })}
       </div>
+
+      <RoundLineChart round={round} players={players} pts={settings.points} />
 
       <button className="btn btn-primary btn-full" style={{marginBottom:10,padding:13,fontSize:14}} onClick={() => setShowHand(true)}>
         + Add Hand #{round.hands.length + 1}
